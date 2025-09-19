@@ -52,6 +52,19 @@ public class EventosController : ControllerBase
         
         return Ok(result.Data);
     }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetEventById(int id)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.GetEventByIdAsync(id, userId);
+
+        if (!result.IsSuccess)
+            return NotFound(new { message = result.ErrorMessage });
+
+        return Ok(result.Data);
+    }
+
     [HttpGet("{eventoId}/balance")]
     public async Task<IActionResult> GetBalance(int eventoId)
     {

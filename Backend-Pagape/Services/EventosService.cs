@@ -63,6 +63,26 @@ public class EventosService : IEventosService
 
         return new ServiceResult<IEnumerable<EventDto>> { IsSuccess = true, Data = events };
     }
+
+    public async Task<ServiceResult<EventDto>> GetEventByIdAsync(int eventoId, int currentUserId)
+    {
+        var evento = await _context.Events
+            .Include(e => e.Participantes)
+            .FirstOrDefaultAsync(e => e.Id == eventoId);
+
+        if (evento == null || !evento.Participantes.Any(p => p.UserId == currentUserId))
+            return new ServiceResult<EventDto> { IsSuccess = false, ErrorMessage = "Evento no encontrado o no tienes acceso." };
+
+        var eventDto = new EventDto
+        {
+            Id = evento.Id,
+            Nombre = evento.Nombre,
+            FechaCreacion = evento.FechaCreacion,
+            CreadorId = evento.CreadorId
+        };
+
+        return new ServiceResult<EventDto> { IsSuccess = true, Data = eventDto };
+    }
     
     public async Task<ServiceResult<BalanceDto>> GetBalanceAsync(int eventoId, int currentUserId)
     {
@@ -136,10 +156,20 @@ public class EventosService : IEventosService
         if (!esParticipante)
             return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No tienes permiso para registrar pagos en este evento." };
         
+        // Validar que el usuario que realiza el pago (DeQuienUserId) sea participante del evento
+        var deQuienEsParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == pagoDto.DeQuienUserId);
+        if (!deQuienEsParticipante)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "El usuario que realiza el pago no es participante del evento." };
+
+        // Validar que el usuario que recibe el pago (AQuienUserId) sea participante del evento
+        var aQuienEsParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == pagoDto.AQuienUserId);
+        if (!aQuienEsParticipante)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "El usuario que recibe el pago no es participante del evento." };
+
         var pago = new Payment
         {
             EventId = eventoId,
-            DeQuienUserId = currentUserId,
+            DeQuienUserId = pagoDto.DeQuienUserId,
             AQuienUserId = pagoDto.AQuienUserId,
             Monto = pagoDto.Monto,
             FechaPago = DateTime.UtcNow
@@ -159,17 +189,17 @@ public class EventosService : IEventosService
 
         var payments = await _context.Payments
             .Where(p => p.EventId == eventoId)
-            .Include(p => p.DeQuienUser)
-            .Include(p => p.AQuienUser)
+            .Include(p => p.Payer)
+            .Include(p => p.Receiver)
             .Select(p => new PaymentDto
             {
                 Id = p.Id,
                 Monto = p.Monto,
                 Fecha = p.FechaPago,
                 PagadorId = p.DeQuienUserId,
-                PagadorNombre = p.DeQuienUser.Nombre,
+                PagadorNombre = p.Payer.Nombre,
                 ReceptorId = p.AQuienUserId,
-                ReceptorNombre = p.AQuienUser.Nombre
+                ReceptorNombre = p.Receiver.Nombre
             })
             .ToListAsync();
 
@@ -183,13 +213,24 @@ public class EventosService : IEventosService
         if (pago == null)
             return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "Pago no encontrado." };
 
+        // Validar que el usuario que realiza el pago (DeQuienUserId) sea participante del evento
+        var deQuienEsParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == pagoDto.DeQuienUserId);
+        if (!deQuienEsParticipante)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "El usuario que realiza el pago no es participante del evento." };
+
+        // Validar que el usuario que recibe el pago (AQuienUserId) sea participante del evento
+        var aQuienEsParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == pagoDto.AQuienUserId);
+        if (!aQuienEsParticipante)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "El usuario que recibe el pago no es participante del evento." };
+
+        // Solo el usuario que registró el pago puede modificarlo
         if (pago.DeQuienUserId != userId)
             return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No tienes permiso para modificar este pago." };
 
+        pago.DeQuienUserId = pagoDto.DeQuienUserId; // Allow updating the payer
         pago.AQuienUserId = pagoDto.AQuienUserId;
         pago.Monto = pagoDto.Monto;
-        // Opcional: actualizar la fecha si se quiere reflejar la edición
-        // pago.FechaPago = DateTime.UtcNow;
+        pago.FechaPago = DateTime.UtcNow; // Update timestamp on modification
 
         _context.Payments.Update(pago);
         await _context.SaveChangesAsync();

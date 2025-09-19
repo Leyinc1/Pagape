@@ -34,11 +34,16 @@ export interface Expense {
     splits: { deudorNombre: string; montoAdeudado: number }[];
 }
 
+export interface ExpenseSplitInput {
+    userId: number;
+    montoAdeudado: number;
+}
+
 export interface CreateExpenseData {
     descripcion: string;
     monto: number;
     pagadoPorUserId: number;
-    participanteIds: number[];
+    splits: ExpenseSplitInput[];
 }
 
 export interface BalanceTransaction {
@@ -66,6 +71,7 @@ export interface Payment {
 export interface CreatePaymentData {
     monto: number;
     aQuienUserId: number;
+    deQuienUserId: number; // Added deQuienUserId to allow specifying the payer
 }
 
 export interface Participant {

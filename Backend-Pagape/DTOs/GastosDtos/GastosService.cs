@@ -26,10 +26,14 @@ public class GastosService : IGastosService
         if (!participantesDelEventoIds.Contains(currentUserId) || !participantesDelEventoIds.Contains(expenseDto.PagadoPorUserId))
             return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "No tienes permiso para añadir gastos a este evento." };
         
-        if (expenseDto.ParticipanteIds.Any(id => !participantesDelEventoIds.Contains(id)))
+        // Validar que todos los usuarios en los splits sean participantes del evento
+        if (expenseDto.Splits.Any(s => !participantesDelEventoIds.Contains(s.UserId)))
             return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "Uno o más usuarios en la división no pertenecen al evento." };
-        
-        var splitAmount = Math.Round(expenseDto.Monto / expenseDto.ParticipanteIds.Count, 2);
+
+        // Validar que la suma de los splits sea igual al monto total del gasto
+        var totalSplitAmount = expenseDto.Splits.Sum(s => s.MontoAdeudado);
+        if (Math.Abs(totalSplitAmount - expenseDto.Monto) > 0.01m) // Usar una pequeña tolerancia para decimales
+            return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "La suma de los montos divididos no coincide con el monto total del gasto." };
 
         var newExpense = new Expense
         {
@@ -40,12 +44,12 @@ public class GastosService : IGastosService
             PagadoPorUserId = expenseDto.PagadoPorUserId
         };
 
-        foreach (var participanteId in expenseDto.ParticipanteIds)
+        foreach (var splitInput in expenseDto.Splits)
         {
             newExpense.Splits.Add(new ExpenseSplit
             {
-                DeudorUserId = participanteId,
-                MontoAdeudado = splitAmount
+                DeudorUserId = splitInput.UserId,
+                MontoAdeudado = splitInput.MontoAdeudado
             });
         }
         
@@ -107,6 +111,20 @@ public class GastosService : IGastosService
         if (!esParticipante)
             return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "No tienes permiso para modificar gastos en este evento." };
 
+        // Validar que todos los usuarios en los splits sean participantes del evento
+        var participantesDelEventoIds = await _context.Participants
+            .Where(p => p.EventId == eventoId)
+            .Select(p => p.UserId)
+            .ToHashSetAsync();
+
+        if (expenseDto.Splits.Any(s => !participantesDelEventoIds.Contains(s.UserId)))
+            return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "Uno o más usuarios en la división no pertenecen al evento." };
+
+        // Validar que la suma de los splits sea igual al monto total del gasto
+        var totalSplitAmount = expenseDto.Splits.Sum(s => s.MontoAdeudado);
+        if (Math.Abs(totalSplitAmount - expenseDto.Monto) > 0.01m) // Usar una pequeña tolerancia para decimales
+            return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "La suma de los montos divididos no coincide con el monto total del gasto." };
+
         // Actualizar propiedades del gasto
         expense.Descripcion = expenseDto.Descripcion;
         expense.Monto = expenseDto.Monto;
@@ -116,11 +134,10 @@ public class GastosService : IGastosService
         _context.ExpenseSplits.RemoveRange(expense.Splits);
 
         // Crear nuevos splits
-        var splitAmount = Math.Round(expenseDto.Monto / expenseDto.ParticipanteIds.Count, 2);
-        var newSplits = expenseDto.ParticipanteIds.Select(participanteId => new ExpenseSplit
+        var newSplits = expenseDto.Splits.Select(splitInput => new ExpenseSplit
         {
-            DeudorUserId = participanteId,
-            MontoAdeudado = splitAmount,
+            DeudorUserId = splitInput.UserId,
+            MontoAdeudado = splitInput.MontoAdeudado,
             ExpenseId = expense.Id
         }).ToList();
         

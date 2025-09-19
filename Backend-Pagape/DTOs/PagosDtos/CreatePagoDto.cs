@@ -5,6 +5,9 @@ namespace Pagape.Api.DTOs.PagosDtos;
 public class CreatePagoDto
 {
     [Required]
+    public int DeQuienUserId { get; set; }
+
+    [Required]
     public int AQuienUserId { get; set; }
 
     [Required]

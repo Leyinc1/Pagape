@@ -36,6 +36,12 @@ const loadAllData = async () => {
     pagos.value = pagosRes.data;
     balance.value = balanceRes.data;
     participantes.value = participantsRes.data;
+
+    console.log('Datos de Evento:', eventoRes.data);
+    console.log('Datos de Gastos:', gastosRes.data);
+    console.log('Datos de Pagos:', pagosRes.data);
+    console.log('Datos de Balance:', balanceRes.data);
+    console.log('Datos de Participantes:', participantsRes.data);
   } catch (err) {
     const error = err as AxiosError<{ message: string }>;
     errorMessage.value = error.response?.data?.message || 'Error al cargar los datos del evento.';
@@ -48,12 +54,12 @@ onMounted(loadAllData);
 // --- PAYMENTS CRUD ---
 const isPaymentModalOpen = ref(false);
 const editingPayment = ref<api.Payment | null>(null);
-const paymentData = ref<api.CreatePaymentData>({ monto: 0, aQuienUserId: 0 });
-const openPaymentCreateModal = () => { editingPayment.value = null; paymentData.value = { monto: 0, aQuienUserId: 0 }; isPaymentModalOpen.value = true; };
-const openPaymentEditModal = (pago: api.Payment) => { editingPayment.value = pago; paymentData.value = { monto: pago.monto, aQuienUserId: pago.receptorId }; isPaymentModalOpen.value = true; };
+const paymentData = ref<api.CreatePaymentData>({ monto: 0, aQuienUserId: 0, deQuienUserId: 0 }); // Added deQuienUserId
+const openPaymentCreateModal = () => { editingPayment.value = null; paymentData.value = { monto: 0, aQuienUserId: 0, deQuienUserId: 0 }; isPaymentModalOpen.value = true; }; // Initialize deQuienUserId
+const openPaymentEditModal = (pago: api.Payment) => { editingPayment.value = pago; paymentData.value = { monto: pago.monto, aQuienUserId: pago.receptorId, deQuienUserId: pago.pagadorId }; isPaymentModalOpen.value = true; }; // Set deQuienUserId from pago.pagadorId
 const closePaymentModal = () => isPaymentModalOpen.value = false;
 const handleSavePayment = async () => {
-  if (paymentData.value.aQuienUserId === 0 || paymentData.value.monto <= 0) return alert('Completa todos los campos.');
+  if (paymentData.value.deQuienUserId === 0 || paymentData.value.aQuienUserId === 0 || paymentData.value.monto <= 0) return alert('Completa todos los campos.');
   try {
     if (editingPayment.value) await api.updatePayment(eventId, editingPayment.value.id, paymentData.value);
     else await api.createPayment(eventId, paymentData.value);
@@ -72,19 +78,76 @@ const handleDeletePayment = async (pagoId: number) => {
 // --- EXPENSES CRUD ---
 const isExpenseModalOpen = ref(false);
 const editingExpense = ref<api.Expense | null>(null);
-const expenseData = ref<api.CreateExpenseData>({ descripcion: '', monto: 0, pagadoPorUserId: 0, participanteIds: [] });
-const openExpenseCreateModal = () => { editingExpense.value = null; expenseData.value = { descripcion: '', monto: 0, pagadoPorUserId: 0, participanteIds: participantes.value.map(p => p.userId) }; isExpenseModalOpen.value = true; };
-const openExpenseEditModal = (gasto: api.Expense) => { editingExpense.value = gasto; expenseData.value = { descripcion: gasto.descripcion, monto: gasto.monto, pagadoPorUserId: gasto.pagadoPorUserId, participanteIds: participantes.value.map(p => p.userId) }; isExpenseModalOpen.value = true; };
+const expenseData = ref<api.CreateExpenseData>({ descripcion: '', monto: 0, pagadoPorUserId: 0, splits: [] });
+
+// Computed property for expense split validation
+const totalSplitAmount = computed(() => {
+  return expenseData.value.splits.reduce((sum, split) => sum + (split.montoAdeudado || 0), 0);
+});
+const isSplitAmountValid = computed(() => {
+  return Math.abs(totalSplitAmount.value - expenseData.value.monto) < 0.01; // Tolerance for float comparison
+});
+
+const openExpenseCreateModal = () => {
+  editingExpense.value = null;
+  expenseData.value = {
+    descripcion: '',
+    monto: 0,
+    pagadoPorUserId: 0,
+    splits: participantes.value.map(p => ({ userId: p.userId, montoAdeudado: 0 })) // Initialize with all participants owing 0
+  };
+  isExpenseModalOpen.value = true;
+};
+
+const openExpenseEditModal = (gasto: api.Expense) => {
+  editingExpense.value = gasto;
+  expenseData.value = {
+    descripcion: gasto.descripcion,
+    monto: gasto.monto,
+    pagadoPorUserId: gasto.pagadoPorUserId,
+    // Map existing splits, and add other participants with 0 owed
+    splits: participantes.value.map(p => {
+      const existingSplit = gasto.splits.find(s => s.deudorNombre === p.nombre); // Assuming deudorNombre matches p.nombre
+      return { userId: p.userId, montoAdeudado: existingSplit ? existingSplit.montoAdeudado : 0 };
+    })
+  };
+  isExpenseModalOpen.value = true;
+};
+
 const closeExpenseModal = () => isExpenseModalOpen.value = false;
+
 const handleSaveExpense = async () => {
-  if (!expenseData.value.descripcion || expenseData.value.monto <= 0 || expenseData.value.pagadoPorUserId === 0 || expenseData.value.participanteIds.length === 0) return alert('Completa todos los campos.');
+  if (!expenseData.value.descripcion || expenseData.value.monto <= 0 || expenseData.value.pagadoPorUserId === 0) {
+    alert('Por favor, completa la descripción, el monto total y quién pagó.');
+    return;
+  }
+
+  // Filter out participants who owe 0 or are not selected (if we add checkboxes later)
+  const finalSplits = expenseData.value.splits.filter(s => s.montoAdeudado > 0);
+  if (finalSplits.length === 0) {
+    alert('Debes asignar al menos un monto a un participante.');
+    return;
+  }
+
+  if (!isSplitAmountValid.value) {
+    alert('La suma de los montos divididos no coincide con el monto total del gasto.');
+    return;
+  }
+
   try {
-    if (editingExpense.value) await api.updateExpense(eventId, editingExpense.value.id, expenseData.value);
-    else await api.createExpense(eventId, expenseData.value);
+    const dataToSend = { ...expenseData.value, splits: finalSplits };
+    if (editingExpense.value) {
+      await api.updateExpense(eventId, editingExpense.value.id, dataToSend);
+    } else {
+      await api.createExpense(eventId, dataToSend);
+    }
     closeExpenseModal();
     await loadAllData();
-  } catch (err) { alert((err as AxiosError<{ message: string }>).response?.data?.message); }
+  } catch (err) {
+    alert((err as AxiosError<{ message: string }>).response?.data?.message || 'Error al guardar el gasto.');
+  }
 };
+
 const handleDeleteExpense = async (gastoId: number) => {
   if (!confirm('¿Seguro que quieres eliminar este gasto?')) return;
   try {
@@ -189,18 +252,139 @@ const goBack = () => router.push({ name: 'Dashboard' });
     </div>
 
     <!-- Expense Modal -->
-    <div v-if="isExpenseModalOpen" class="modal-overlay" @click.self="closeExpenseModal"><div class="modal-content">...</div></div>
+    <div v-if="isExpenseModalOpen" class="modal-overlay" @click.self="closeExpenseModal">
+        <div class="modal-content">
+            <h2>{{ editingExpense ? 'Editar' : 'Añadir' }} Gasto</h2>
+            <form @submit.prevent="handleSaveExpense">
+                <label for="descripcion">Descripción:</label>
+                <input id="descripcion" type="text" v-model="expenseData.descripcion" required />
+
+                <label for="montoGasto">Monto Total:</label>
+                <input id="montoGasto" type="number" v-model.number="expenseData.monto" required min="0.01" step="0.01" />
+
+                <label for="pagadoPor">Pagado por:</label>
+                <select id="pagadoPor" v-model.number="expenseData.pagadoPorUserId" required>
+                    <option disabled value="0">Selecciona quién pagó</option>
+                    <option v-for="p in participantes" :key="p.userId" :value="p.userId">{{ p.nombre }}</option>
+                </select>
+
+                <label>Dividir entre:</label>
+                <div class="split-participants-grid">
+                    <div v-for="p in participantes" :key="p.userId" class="split-participant-item">
+                        <label :for="`split-${p.userId}`">{{ p.nombre }}</label>
+                        <input type="number" :id="`split-${p.userId}`" v-model.number="expenseData.splits.find(s => s.userId === p.userId)!.montoAdeudado" min="0" step="0.01" />
+                    </div>
+                </div>
+
+                <div class="split-summary">
+                    <span>Total dividido: {{ totalSplitAmount.toFixed(2) }} €</span>
+                    <span :class="{ 'error-text': !isSplitAmountValid }">
+                        Restante: {{ (expenseData.monto - totalSplitAmount).toFixed(2) }} €
+                    </span>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @click="closeExpenseModal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" :disabled="!isSplitAmountValid">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Payment Modal -->
-    <div v-if="isPaymentModalOpen" class="modal-overlay" @click.self="closePaymentModal"><div class="modal-content">...</div></div>
+    <div v-if="isPaymentModalOpen" class="modal-overlay" @click.self="closePaymentModal">
+        <div class="modal-content">
+            <h2>{{ editingPayment ? 'Editar' : 'Registrar' }} Pago</h2>
+            <form @submit.prevent="handleSavePayment">
+                <label for="pagador">Pagador del pago:</label>
+                <select id="pagador" v-model.number="paymentData.deQuienUserId" required>
+                    <option disabled value="0">Selecciona un participante</option>
+                    <option v-for="p in participantes" :key="p.userId" :value="p.userId">{{ p.nombre }}</option>
+                </select>
+
+                <label for="receptor">Receptor del pago:</label>
+                <select id="receptor" v-model.number="paymentData.aQuienUserId" required>
+                    <option disabled value="0">Selecciona un participante</option>
+                    <option v-for="p in participantes" :key="p.userId" :value="p.userId">{{ p.nombre }}</option>
+                </select>
+
+                <label for="montoPago">Monto:</label>
+                <input id="montoPago" type="number" v-model.number="paymentData.monto" required min="0.01" step="0.01" />
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @click="closePaymentModal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
   </div>
 </template>
 
-<style scoped>
+<style>
+.tabs {
+    display: flex;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--color-border);
+}
+
+.tabs button {
+    background-color: transparent;
+    border: none;
+    padding: 0.75rem 1.25rem;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-text-light);
+    transition: color 0.3s ease, border-bottom 0.3s ease;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px; /* Counteract border-bottom to keep alignment */
+}
+
+.tabs button:hover {
+    color: var(--color-primary);
+}
+
+.tabs button.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+    font-weight: 600;
+}
+
 /* ... existing styles ... */
 .form-add-participant { display: flex; gap: 1rem; margin-bottom: 2rem; }
 .form-add-participant input { flex-grow: 1; margin-bottom: 0; }
+
+.split-participants-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.split-participant-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.split-participant-item input {
+    margin-bottom: 0;
+}
+
+.split-summary {
+    margin-top: 1rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+}
+
+.error-text {
+    color: var(--color-danger);
+}
 </style>
+
 
 

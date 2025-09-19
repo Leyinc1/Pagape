@@ -2,6 +2,16 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Pagape.Api.DTOs.GastosDtos;
 
+public class ExpenseSplitInputDto
+{
+    [Required]
+    public int UserId { get; set; }
+
+    [Required]
+    [Range(0.01, double.MaxValue, ErrorMessage = "El monto adeudado debe ser mayor a cero.")]
+    public decimal MontoAdeudado { get; set; }
+}
+
 public class CreateExpenseDto
 {
     [Required]
@@ -9,14 +19,14 @@ public class CreateExpenseDto
     public string Descripcion { get; set; }
 
     [Required]
-    [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a cero.")]
+    [Range(0.01, double.MaxValue, ErrorMessage = "El monto total del gasto debe ser mayor a cero.")]
     public decimal Monto { get; set; }
 
     [Required]
     public int PagadoPorUserId { get; set; }
 
-    // Lista de IDs de los usuarios que van a dividir la cuenta
+    // Lista de cómo se divide el gasto entre los participantes
     [Required]
-    [MinLength(1, ErrorMessage = "Debe haber al menos un participante en el gasto.")]
-    public List<int> ParticipanteIds { get; set; }
+    [MinLength(1, ErrorMessage = "Debe haber al menos una división de gasto.")]
+    public List<ExpenseSplitInputDto> Splits { get; set; }
 }

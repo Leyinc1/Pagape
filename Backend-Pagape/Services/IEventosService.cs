@@ -10,6 +10,7 @@ public interface IEventosService
 {
     Task<ServiceResult<EventDto>> CreateEventAsync(CreateEventDto createEventDto, int userId);
     Task<ServiceResult<IEnumerable<EventDto>>> GetEventsForUserAsync(int userId);
+    Task<ServiceResult<EventDto>> GetEventByIdAsync(int eventoId, int currentUserId);
     Task<ServiceResult<BalanceDto>> GetBalanceAsync(int eventoId, int currentUserId);
     Task<ServiceResult<bool>> RegisterPagoAsync(int eventoId, CreatePagoDto pagoDto, int currentUserId);
     Task<ServiceResult<IEnumerable<PaymentDto>>> GetPaymentsForEventAsync(int eventoId, int userId);
