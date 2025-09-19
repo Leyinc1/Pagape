@@ -39,6 +39,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEventosService, EventosService>();
 builder.Services.AddScoped<IGastosService, GastosService>();
+builder.Services.AddScoped<IUserService, UserService>();
 
 
 builder.Services.AddCors(options =>

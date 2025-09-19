@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { registerUser } from '@/services/api'
 import type { AxiosError } from 'axios';
+
 const nombre = ref('')
 const email = ref('')
 const password = ref('')
@@ -12,56 +13,73 @@ const router = useRouter()
 const handleRegister = async () => {
   errorMessage.value = ''
   try {
-    const response = await registerUser({
+    await registerUser({
       nombre: nombre.value,
       email: email.value,
       password: password.value
     })
-
-    console.log('Registro exitoso:', response.data)
-
-    // Opcional: Mostrar un mensaje de éxito antes de redirigir
+    // Opcional: en lugar de un alert, podríamos tener un componente de notificación global
     alert('¡Registro exitoso! Ahora puedes iniciar sesión.')
-
-    // Después de un registro exitoso, redirigimos al login
-    router.push('/login')
-
-  } catch (err) { // <-- Cambiamos 'error: any' por 'err'
-    const error = err as AxiosError<{ message: string }>; // Le decimos a TS cómo es el error
-    console.error('Error en el registro:', error.response?.data);
+    await router.push('/login')
+  } catch (err) {
+    const error = err as AxiosError<{ message: string }>;
     errorMessage.value = error.response?.data?.message || 'Ocurrió un error durante el registro.';
   }
 }
 </script>
 
 <template>
-  <div>
-    <h1>Registro de Nuevo Usuario</h1>
-    <form @submit.prevent="handleRegister">
-      <div>
+  <div class="auth-container">
+    <div class="container">
+      <h1 class="text-center">Crear Cuenta</h1>
+      <form @submit.prevent="handleRegister">
+        
         <label for="nombre">Nombre:</label>
-        <input type="text" id="nombre" v-model="nombre" required />
-      </div>
-      <div>
-        <label for="email">Email:</label>
-        <input type="email" id="email" v-model="email" required />
-      </div>
-      <div>
-        <label for="password">Contraseña:</label>
-        <input type="password" id="password" v-model="password" required />
-      </div>
-      <button type="submit">Registrarse</button>
+        <input type="text" id="nombre" v-model="nombre" required placeholder="Tu Nombre" />
 
-      <p v-if="errorMessage" style="color: red;">{{ errorMessage }}</p>
-    </form>
-    <p>
-      ¿Ya tienes una cuenta? <router-link to="/login">Inicia sesión</router-link>
-    </p>
+        <label for="email">Email:</label>
+        <input type="email" id="email" v-model="email" required placeholder="tu@email.com" />
+        
+        <label for="password">Contraseña:</label>
+        <input type="password" id="password" v-model="password" required placeholder="••••••••" />
+        
+        <button type="submit" class="btn btn-primary btn-block">Registrarse</button>
+
+        <div v-if="errorMessage" class="error-message text-center">{{ errorMessage }}</div>
+      </form>
+      <p class="text-center alternate-link">
+        ¿Ya tienes una cuenta? <router-link to="/login">Inicia sesión</router-link>
+      </p>
+    </div>
   </div>
 </template>
 
 <style scoped>
-form div {
-  margin-bottom: 1rem;
+.auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.container {
+  width: 100%;
+  max-width: 400px;
+}
+
+.btn-block {
+    display: block;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.alternate-link {
+    margin-top: 2rem;
 }
 </style>

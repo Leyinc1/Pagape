@@ -75,4 +75,69 @@ public class EventosController : ControllerBase
 
         return Ok(new { message = "Pago registrado exitosamente." });
     }
+
+    [HttpGet("{eventoId}/pagos")]
+    public async Task<IActionResult> GetPayments(int eventoId)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.GetPaymentsForEventAsync(eventoId, userId);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.ErrorMessage });
+
+        return Ok(result.Data);
+    }
+
+    [HttpPut("{eventoId}/pagos/{pagoId}")]
+    public async Task<IActionResult> UpdatePayment(int eventoId, int pagoId, [FromBody] CreatePagoDto pagoDto)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.UpdatePaymentAsync(eventoId, pagoId, pagoDto, userId);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.ErrorMessage });
+
+        return Ok(new { message = "Pago actualizado exitosamente." });
+    }
+
+    [HttpDelete("{eventoId}/pagos/{pagoId}")]
+    public async Task<IActionResult> DeletePayment(int eventoId, int pagoId)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.DeletePaymentAsync(eventoId, pagoId, userId);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.ErrorMessage });
+
+        return Ok(new { message = "Pago eliminado exitosamente." });
+    }
+
+    // --- Participant Endpoints ---
+
+    [HttpGet("{eventoId}/participantes")]
+    public async Task<IActionResult> GetParticipants(int eventoId)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.GetParticipantsAsync(eventoId, userId);
+        if (!result.IsSuccess) return BadRequest(new { message = result.ErrorMessage });
+        return Ok(result.Data);
+    }
+
+    [HttpPost("{eventoId}/participantes")]
+    public async Task<IActionResult> AddParticipant(int eventoId, [FromBody] AddParticipantDto participantDto)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.AddParticipantAsync(eventoId, participantDto, userId);
+        if (!result.IsSuccess) return BadRequest(new { message = result.ErrorMessage });
+        return Ok(result.Data);
+    }
+
+    [HttpDelete("{eventoId}/participantes/{participantUserId}")]
+    public async Task<IActionResult> RemoveParticipant(int eventoId, int participantUserId)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _eventosService.RemoveParticipantAsync(eventoId, participantUserId, userId);
+        if (!result.IsSuccess) return BadRequest(new { message = result.ErrorMessage });
+        return NoContent();
+    }
 }

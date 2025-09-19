@@ -150,4 +150,142 @@ public class EventosService : IEventosService
 
         return new ServiceResult<bool> { IsSuccess = true, Data = true };
     }
+
+    public async Task<ServiceResult<IEnumerable<PaymentDto>>> GetPaymentsForEventAsync(int eventoId, int userId)
+    {
+        var esParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == userId);
+        if (!esParticipante)
+            return new ServiceResult<IEnumerable<PaymentDto>> { IsSuccess = false, ErrorMessage = "No tienes acceso a este evento." };
+
+        var payments = await _context.Payments
+            .Where(p => p.EventId == eventoId)
+            .Include(p => p.DeQuienUser)
+            .Include(p => p.AQuienUser)
+            .Select(p => new PaymentDto
+            {
+                Id = p.Id,
+                Monto = p.Monto,
+                Fecha = p.FechaPago,
+                PagadorId = p.DeQuienUserId,
+                PagadorNombre = p.DeQuienUser.Nombre,
+                ReceptorId = p.AQuienUserId,
+                ReceptorNombre = p.AQuienUser.Nombre
+            })
+            .ToListAsync();
+
+        return new ServiceResult<IEnumerable<PaymentDto>> { IsSuccess = true, Data = payments };
+    }
+
+    public async Task<ServiceResult<bool>> UpdatePaymentAsync(int eventoId, int pagoId, CreatePagoDto pagoDto, int userId)
+    {
+        var pago = await _context.Payments.FirstOrDefaultAsync(p => p.Id == pagoId && p.EventId == eventoId);
+
+        if (pago == null)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "Pago no encontrado." };
+
+        if (pago.DeQuienUserId != userId)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No tienes permiso para modificar este pago." };
+
+        pago.AQuienUserId = pagoDto.AQuienUserId;
+        pago.Monto = pagoDto.Monto;
+        // Opcional: actualizar la fecha si se quiere reflejar la edición
+        // pago.FechaPago = DateTime.UtcNow;
+
+        _context.Payments.Update(pago);
+        await _context.SaveChangesAsync();
+
+        return new ServiceResult<bool> { IsSuccess = true, Data = true };
+    }
+
+    public async Task<ServiceResult<bool>> DeletePaymentAsync(int eventoId, int pagoId, int userId)
+    {
+        var pago = await _context.Payments.FirstOrDefaultAsync(p => p.Id == pagoId && p.EventId == eventoId);
+
+        if (pago == null)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "Pago no encontrado." };
+
+        // Lógica de permisos: solo quien registró el pago o el creador del evento pueden borrarlo.
+        var evento = await _context.Events.FindAsync(eventoId);
+        if (pago.DeQuienUserId != userId && evento?.CreadorId != userId)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No tienes permiso para eliminar este pago." };
+
+        _context.Payments.Remove(pago);
+        await _context.SaveChangesAsync();
+
+        return new ServiceResult<bool> { IsSuccess = true, Data = true };
+    }
+
+    public async Task<ServiceResult<IEnumerable<ParticipantDto>>> GetParticipantsAsync(int eventoId, int currentUserId)
+    {
+        var esParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == currentUserId);
+        if (!esParticipante) 
+            return new ServiceResult<IEnumerable<ParticipantDto>> { IsSuccess = false, ErrorMessage = "No tienes acceso a este evento." };
+
+        var participants = await _context.Participants
+            .Where(p => p.EventId == eventoId)
+            .Include(p => p.User)
+            .Select(p => new ParticipantDto
+            {
+                UserId = p.UserId,
+                Nombre = p.User.Nombre,
+                Email = p.User.Email
+            })
+            .ToListAsync();
+
+        return new ServiceResult<IEnumerable<ParticipantDto>> { IsSuccess = true, Data = participants };
+    }
+
+    public async Task<ServiceResult<ParticipantDto>> AddParticipantAsync(int eventoId, AddParticipantDto participantDto, int currentUserId)
+    {
+        var evento = await _context.Events.FindAsync(eventoId);
+        if (evento == null) 
+            return new ServiceResult<ParticipantDto> { IsSuccess = false, ErrorMessage = "Evento no encontrado." };
+
+        if (evento.CreadorId != currentUserId)
+            return new ServiceResult<ParticipantDto> { IsSuccess = false, ErrorMessage = "Solo el creador del evento puede añadir participantes." };
+
+        var userToAdd = await _context.Users.FirstOrDefaultAsync(u => u.Email == participantDto.Email);
+        if (userToAdd == null)
+            return new ServiceResult<ParticipantDto> { IsSuccess = false, ErrorMessage = "El usuario con ese email no existe." };
+
+        var esYaParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == userToAdd.Id);
+        if (esYaParticipante)
+            return new ServiceResult<ParticipantDto> { IsSuccess = false, ErrorMessage = "Este usuario ya es participante del evento." };
+
+        var newParticipant = new Participant { EventId = eventoId, UserId = userToAdd.Id };
+        await _context.Participants.AddAsync(newParticipant);
+        await _context.SaveChangesAsync();
+
+        return new ServiceResult<ParticipantDto> { IsSuccess = true, Data = new ParticipantDto { UserId = userToAdd.Id, Nombre = userToAdd.Nombre, Email = userToAdd.Email } };
+    }
+
+    public async Task<ServiceResult<bool>> RemoveParticipantAsync(int eventoId, int participantUserId, int currentUserId)
+    {
+        var evento = await _context.Events.FindAsync(eventoId);
+        if (evento == null) 
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "Evento no encontrado." };
+
+        if (evento.CreadorId != currentUserId)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "Solo el creador del evento puede eliminar participantes." };
+
+        if (participantUserId == currentUserId)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No puedes eliminarte a ti mismo como creador del evento." };
+
+        var participantToRemove = await _context.Participants.FirstOrDefaultAsync(p => p.EventId == eventoId && p.UserId == participantUserId);
+        if (participantToRemove == null)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "El participante no fue encontrado en el evento." };
+
+        // Validar que no tenga transacciones
+        var hasExpenses = await _context.Expenses.AnyAsync(e => e.EventId == eventoId && e.PagadoPorUserId == participantUserId);
+        var hasSplits = await _context.ExpenseSplits.AnyAsync(s => s.Expense.EventId == eventoId && s.DeudorUserId == participantUserId);
+        var hasPayments = await _context.Payments.AnyAsync(p => p.EventId == eventoId && (p.DeQuienUserId == participantUserId || p.AQuienUserId == participantUserId));
+
+        if (hasExpenses || hasSplits || hasPayments)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No se puede eliminar al participante porque tiene gastos o pagos asociados." };
+
+        _context.Participants.Remove(participantToRemove);
+        await _context.SaveChangesAsync();
+
+        return new ServiceResult<bool> { IsSuccess = true, Data = true };
+    }
 }

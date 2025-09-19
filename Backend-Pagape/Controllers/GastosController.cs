@@ -41,4 +41,28 @@ public class GastosController : ControllerBase
 
         return Ok(result.Data);
     }
+
+    [HttpPut("{gastoId}")]
+    public async Task<IActionResult> UpdateExpense(int eventoId, int gastoId, [FromBody] CreateExpenseDto expenseDto)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _gastosService.UpdateExpenseAsync(eventoId, gastoId, expenseDto, userId);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.ErrorMessage });
+
+        return Ok(result.Data);
+    }
+
+    [HttpDelete("{gastoId}")]
+    public async Task<IActionResult> DeleteExpense(int eventoId, int gastoId)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await _gastosService.DeleteExpenseAsync(eventoId, gastoId, userId);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.ErrorMessage });
+
+        return NoContent(); // 204 No Content es una buena respuesta para un DELETE exitoso
+    }
 }

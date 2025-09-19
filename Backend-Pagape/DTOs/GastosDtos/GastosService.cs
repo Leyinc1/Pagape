@@ -22,16 +22,13 @@ public class GastosService : IGastosService
         if (evento == null)
             return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "Evento no encontrado." };
 
-        // Validación: El usuario actual y el que pagó deben ser participantes del evento.
         var participantesDelEventoIds = evento.Participantes.Select(p => p.UserId).ToHashSet();
         if (!participantesDelEventoIds.Contains(currentUserId) || !participantesDelEventoIds.Contains(expenseDto.PagadoPorUserId))
             return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "No tienes permiso para añadir gastos a este evento." };
         
-        // Validación: Todos los que dividen la cuenta deben ser participantes del evento.
         if (expenseDto.ParticipanteIds.Any(id => !participantesDelEventoIds.Contains(id)))
             return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "Uno o más usuarios en la división no pertenecen al evento." };
         
-        // Lógica de división (por ahora en partes iguales)
         var splitAmount = Math.Round(expenseDto.Monto / expenseDto.ParticipanteIds.Count, 2);
 
         var newExpense = new Expense
@@ -55,13 +52,24 @@ public class GastosService : IGastosService
         await _context.Expenses.AddAsync(newExpense);
         await _context.SaveChangesAsync();
 
-        // Mapear a DTO para la respuesta (se omite por brevedad, pero es necesario)
-        return new ServiceResult<ExpenseDto> { IsSuccess = true, Data = new ExpenseDto { Id = newExpense.Id /* ... */ } };
+        var user = await _context.Users.FindAsync(newExpense.PagadoPorUserId);
+
+        return new ServiceResult<ExpenseDto> { IsSuccess = true, Data = new ExpenseDto { 
+            Id = newExpense.Id,
+            Descripcion = newExpense.Descripcion,
+            Monto = newExpense.Monto,
+            Fecha = newExpense.Fecha,
+            PagadoPorNombre = user?.Nombre ?? "",
+            Splits = newExpense.Splits.Select(s => new ExpenseSplitDetailDto
+                {
+                    DeudorNombre = _context.Users.Find(s.DeudorUserId)?.Nombre ?? "",
+                    MontoAdeudado = s.MontoAdeudado
+                }).ToList()
+        } };
     }
 
     public async Task<ServiceResult<IEnumerable<ExpenseDto>>> GetExpensesForEventAsync(int eventoId, int currentUserId)
     {
-        // Validación: El usuario debe ser participante para ver los gastos.
         var esParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == currentUserId);
         if (!esParticipante)
             return new ServiceResult<IEnumerable<ExpenseDto>> { IsSuccess = false, ErrorMessage = "No tienes permiso para ver este evento." };
@@ -87,5 +95,58 @@ public class GastosService : IGastosService
             .ToListAsync();
             
         return new ServiceResult<IEnumerable<ExpenseDto>> { IsSuccess = true, Data = expenses };
+    }
+
+    public async Task<ServiceResult<ExpenseDto>> UpdateExpenseAsync(int eventoId, int gastoId, CreateExpenseDto expenseDto, int currentUserId)
+    {
+        var expense = await _context.Expenses.Include(e => e.Splits).FirstOrDefaultAsync(e => e.Id == gastoId && e.EventId == eventoId);
+        if (expense == null)
+            return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "Gasto no encontrado." };
+
+        var esParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == currentUserId);
+        if (!esParticipante)
+            return new ServiceResult<ExpenseDto> { IsSuccess = false, ErrorMessage = "No tienes permiso para modificar gastos en este evento." };
+
+        // Actualizar propiedades del gasto
+        expense.Descripcion = expenseDto.Descripcion;
+        expense.Monto = expenseDto.Monto;
+        expense.PagadoPorUserId = expenseDto.PagadoPorUserId;
+
+        // Eliminar splits antiguos
+        _context.ExpenseSplits.RemoveRange(expense.Splits);
+
+        // Crear nuevos splits
+        var splitAmount = Math.Round(expenseDto.Monto / expenseDto.ParticipanteIds.Count, 2);
+        var newSplits = expenseDto.ParticipanteIds.Select(participanteId => new ExpenseSplit
+        {
+            DeudorUserId = participanteId,
+            MontoAdeudado = splitAmount,
+            ExpenseId = expense.Id
+        }).ToList();
+        
+        await _context.ExpenseSplits.AddRangeAsync(newSplits);
+        await _context.SaveChangesAsync();
+
+        // Devolver el DTO actualizado (similar a Create)
+        var updatedExpense = await GetExpensesForEventAsync(eventoId, currentUserId);
+        var dto = updatedExpense.Data.FirstOrDefault(e => e.Id == gastoId);
+        return new ServiceResult<ExpenseDto> { IsSuccess = true, Data = dto };
+    }
+
+    public async Task<ServiceResult<bool>> DeleteExpenseAsync(int eventoId, int gastoId, int currentUserId)
+    {
+        var expense = await _context.Expenses.Include(e => e.Splits).FirstOrDefaultAsync(e => e.Id == gastoId && e.EventId == eventoId);
+        if (expense == null)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "Gasto no encontrado." };
+
+        var esParticipante = await _context.Participants.AnyAsync(p => p.EventId == eventoId && p.UserId == currentUserId);
+        if (!esParticipante)
+            return new ServiceResult<bool> { IsSuccess = false, ErrorMessage = "No tienes permiso para eliminar gastos en este evento." };
+
+        _context.ExpenseSplits.RemoveRange(expense.Splits); // Eliminar splits explícitamente
+        _context.Expenses.Remove(expense);
+        await _context.SaveChangesAsync();
+
+        return new ServiceResult<bool> { IsSuccess = true, Data = true };
     }
 }

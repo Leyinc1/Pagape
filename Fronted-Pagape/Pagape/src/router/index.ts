@@ -3,6 +3,7 @@ import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import EventoDetalleView from '../views/EventoDetalleView.vue'
+import ProfileView from '../views/ProfileView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -18,7 +19,7 @@ const router = createRouter({
     },
     {
       path: '/dashboard',
-      name: 'dashboard',
+      name: 'Dashboard', // Asegurarse que el nombre es consistente
       component: DashboardView,
       meta: { requiresAuth: true } // <-- 2. Añadimos una marca de ruta protegida
     },
@@ -29,11 +30,16 @@ const router = createRouter({
     },
     {
       path: '/evento/:id',
-      name: 'evento-detalle',
+      name: 'EventoDetalle', // Asegurarse que el nombre es consistente
       component: EventoDetalleView,
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/profile',
+      name: 'Profile',
+      component: ProfileView,
+      meta: { requiresAuth: true }
     }
-    // Aquí añadiremos las rutas protegidas como el Dashboard
   ]
 })
 router.beforeEach((to, from, next) => {
